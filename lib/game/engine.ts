@@ -64,13 +64,29 @@ const availableItemsByPlan = (challenge: ChallengeDefinition) => {
     .flatMap((component) =>
       shuffle(challenge.items.filter((item) => item.componentType === component.id)).slice(0, 1),
     );
-  const remaining = challenge.items.filter(
+  let remaining = challenge.items.filter(
     (item) => !anchors.some((anchor) => anchor.id === item.id),
   );
   const extraCount = Math.max(0, challenge.numberOfItemsRequired - anchors.length);
-  return shuffle([...anchors, ...shuffle(remaining).slice(0, extraCount)]).map(
-    (item) => item.id,
-  );
+  const selected = [...anchors];
+  while (selected.length < anchors.length + extraCount) {
+    const eligible = remaining.filter((item) => {
+      const component = challenge.componentTypes.find(
+        (entry) => entry.id === item.componentType,
+      );
+      if (!component) return false;
+      const selectedOfType = selected.filter(
+        (entry) => entry.componentType === item.componentType,
+      ).length;
+      // There are two player build slots per component type.
+      return selectedOfType < component.maxSelections * PLAYERS.length;
+    });
+    if (!eligible.length) break;
+    const next = eligible[Math.floor(Math.random() * eligible.length)];
+    selected.push(next);
+    remaining = remaining.filter((item) => item.id !== next.id);
+  }
+  return shuffle(selected).map((item) => item.id);
 };
 
 export const createGame = (challengeId: string): GameState => {
@@ -256,8 +272,18 @@ export const toPublicGame = (state: GameState): PublicGameState => {
     items: player.items.map((itemId) => itemFor(challenge, itemId)),
     componentCounts: componentCounts(challenge, player),
   });
-  const challengeInfo = { ...challenge, items: undefined };
-  const { items: _items, ...publicChallenge } = challengeInfo;
+  const publicChallenge = {
+    id: challenge.id,
+    name: challenge.name,
+    kicker: challenge.kicker,
+    description: challenge.description,
+    objective: challenge.objective,
+    imageSearchTerm: challenge.imageSearchTerm,
+    accent: challenge.accent,
+    componentTypes: challenge.componentTypes,
+    scoringCriteria: challenge.scoringCriteria,
+    numberOfItemsRequired: challenge.numberOfItemsRequired,
+  };
   const publicGame: PublicGameState = {
     id: state.id,
     challenge: publicChallenge,

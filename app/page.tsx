@@ -1,5 +1,7 @@
 "use client";
+/* eslint-disable @next/next/no-img-element */
 
+import type { CSSProperties } from "react";
 import type { ComponentItem, PlayerId, PublicGameState } from "@/lib/game/types";
 import { useEffect, useMemo, useState } from "react";
 
@@ -112,7 +114,7 @@ function CreationBoard({
           <p className="empty-build">Win components to start your build.</p>
         ) : (
           playerState.items.map((item, index) => (
-            <div className="won-component" key={item.id} style={{ "--i": index } as React.CSSProperties}>
+            <div className="won-component" key={item.id} style={{ "--i": index } as CSSProperties}>
               <span className="won-index">0{index + 1}</span>
               <div>
                 <strong>{item.name}</strong>
@@ -136,13 +138,9 @@ function BidStation({
   busy: boolean;
 }) {
   const player: PlayerId = state.phase === "PLAYER_ONE_BIDDING" ? "one" : "two";
-  const [bid, setBid] = useState(1);
   const canBid = state.canBid[player];
   const budget = state.players[player].budget;
-
-  useEffect(() => {
-    setBid(Math.min(Math.max(1, budget), 20));
-  }, [player, state.currentItem?.id, budget]);
+  const [bid, setBid] = useState(() => Math.min(Math.max(1, budget), 20));
 
   return (
     <div className={`bid-station bidder-${player}`}>
@@ -267,7 +265,7 @@ function AuctionStage({
       {reveal ? (
         <RoundReveal state={state} onNext={onNext} busy={busy} />
       ) : (
-        <BidStation state={state} onBid={onBid} busy={busy} />
+        <BidStation key={`${state.phase}-${item.id}`} state={state} onBid={onBid} busy={busy} />
       )}
     </main>
   );
@@ -304,7 +302,7 @@ function FinalResults({ state, onPlayAgain }: { state: PublicGameState; onPlayAg
               </div>
               <div className="final-composition">
                 {state.players[player].items.slice(0, 5).map((item, index) => (
-                  <div className="composition-piece" style={{ "--piece": index } as React.CSSProperties} key={item.id}>
+                  <div className="composition-piece" style={{ "--piece": index, "--offset": `${index % 2 ? 42 : 0}px` } as CSSProperties} key={item.id}>
                     <Picture term={item.imageSearchTerm} label={item.name} />
                   </div>
                 ))}
@@ -384,7 +382,7 @@ function Lobby({ onStart, loading, error }: { onStart: (id: string) => void; loa
               type="button"
               onClick={() => onStart(challenge.id)}
               disabled={loading}
-              style={{ "--accent": challenge.accent } as React.CSSProperties}
+              style={{ "--accent": challenge.accent } as CSSProperties}
             >
               <Picture term={challenge.imageSearchTerm} label={challenge.name} />
               <span className="challenge-shade" />
@@ -440,7 +438,7 @@ export default function Home() {
         game.phase === "FINISHED" ? (
           <FinalResults state={game} onPlayAgain={() => setGame(null)} />
         ) : (
-          <div className="game-layout" style={{ "--accent": game.challenge.accent } as React.CSSProperties}>
+          <div className="game-layout" style={{ "--accent": game.challenge.accent } as CSSProperties}>
             <section className="game-bar">
               <div><span className="eyebrow">{game.challenge.kicker}</span><h2>Build the best {game.challenge.name.replace("Best ", "").toLowerCase()}</h2></div>
               <div className="round-progress"><span>Round {game.round} / {game.maxRounds}</span><div><i style={{ width: `${progress}%` }} /></div></div>
