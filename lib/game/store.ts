@@ -1,9 +1,9 @@
 import type { GameState } from "./types";
 
-// A deliberately server-only in-memory store for the prototype. In production,
-// replace it with a session-backed database or Redis store.
-const games = new Map<string, GameState>();
+// Server-memory room store for this playable prototype. Deploy with a shared
+// data store (Redis/database) when running more than one server instance.
+const gamesByCode = new Map<string, GameState>();
 
-export const saveGame = (game: GameState) => games.set(game.id, game);
+export const saveGame = (game: GameState) => gamesByCode.set(game.roomCode, game);
 
-export const findGame = (id: string) => games.get(id);
+export const findGameByCode = (roomCode: string) => gamesByCode.get(roomCode.toUpperCase());

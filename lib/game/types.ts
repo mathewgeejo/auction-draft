@@ -3,8 +3,8 @@ export type PlayerId = "one" | "two";
 export type Rarity = "common" | "standout" | "legendary";
 
 export type GamePhase =
-  | "PLAYER_ONE_BIDDING"
-  | "PLAYER_TWO_BIDDING"
+  | "WAITING_FOR_PLAYER"
+  | "AUCTION_OPEN"
   | "ROUND_REVEAL"
   | "FINISHED";
 
@@ -50,19 +50,24 @@ export interface ChallengeDefinition {
 export interface PlayerState {
   budget: number;
   items: string[];
-  pendingBid?: number;
 }
 
 export interface RoundResult {
   itemId: string;
   item: ComponentItem;
-  bids: Record<PlayerId, number>;
   winner: PlayerId | null;
-  tieBreak: boolean;
+  winningBid: number;
+}
+
+export interface CurrentBid {
+  player: PlayerId;
+  amount: number;
+  placedAt: number;
 }
 
 export interface GameState {
   id: string;
+  roomCode: string;
   challengeId: string;
   phase: GamePhase;
   round: number;
@@ -70,6 +75,9 @@ export interface GameState {
   availableItemIds: string[];
   currentItemId: string | null;
   players: Record<PlayerId, PlayerState>;
+  playerTokens: Record<PlayerId, string | null>;
+  currentBid: CurrentBid | null;
+  closeAt: number | null;
   lastResult: RoundResult | null;
 }
 
@@ -81,6 +89,7 @@ export interface PlayerPublicState {
 
 export interface PublicGameState {
   id: string;
+  roomCode: string;
   challenge: Omit<ChallengeDefinition, "items">;
   phase: GamePhase;
   round: number;
@@ -88,8 +97,22 @@ export interface PublicGameState {
   currentItem: ComponentItem | null;
   players: Record<PlayerId, PlayerPublicState>;
   canBid: Record<PlayerId, boolean>;
+  seats: Record<PlayerId, boolean>;
+  currentBid: CurrentBid | null;
+  closeAt: number | null;
   lastResult: RoundResult | null;
   scores?: Record<PlayerId, ScoreCard>;
+}
+
+export interface RoomSession {
+  roomCode: string;
+  player: PlayerId;
+  token: string;
+}
+
+export interface RoomResponse {
+  game: PublicGameState;
+  session: RoomSession;
 }
 
 export interface ScoreLine {

@@ -11,18 +11,21 @@ import type {
 
 const PLAYERS: PlayerId[] = ["one", "two"];
 const STARTING_BUDGET = 20;
+export const AUCTION_QUIET_WINDOW_MS = 8_000;
 
-const randomId = () =>
-  `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+const randomToken = () =>
+  `${Date.now().toString(36)}-${crypto.randomUUID().replaceAll("-", "")}`;
+
+const randomRoomCode = () => {
+  const alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+  return Array.from({ length: 5 }, () => alphabet[Math.floor(Math.random() * alphabet.length)]).join("");
+};
 
 const shuffle = <T,>(items: T[]) => {
   const shuffled = [...items];
   for (let index = shuffled.length - 1; index > 0; index -= 1) {
     const swapIndex = Math.floor(Math.random() * (index + 1));
-    [shuffled[index], shuffled[swapIndex]] = [
-      shuffled[swapIndex],
-      shuffled[index],
-    ];
+    [shuffled[index], shuffled[swapIndex]] = [shuffled[swapIndex], shuffled[index]];
   }
   return shuffled;
 };
@@ -33,10 +36,7 @@ const itemFor = (challenge: ChallengeDefinition, itemId: string) => {
   return item;
 };
 
-export const componentCounts = (
-  challenge: ChallengeDefinition,
-  player: PlayerState,
-) =>
+export const componentCounts = (challenge: ChallengeDefinition, player: PlayerState) =>
   challenge.componentTypes.reduce<Record<string, number>>((counts, component) => {
     counts[component.id] = player.items.filter(
       (itemId) => itemFor(challenge, itemId).componentType === component.id,
@@ -49,16 +49,12 @@ export const canPlayerTake = (
   player: PlayerState,
   item: ComponentItem,
 ) => {
-  const component = challenge.componentTypes.find(
-    (entry) => entry.id === item.componentType,
-  );
+  const component = challenge.componentTypes.find((entry) => entry.id === item.componentType);
   if (!component || player.budget < 1) return false;
   return componentCounts(challenge, player)[component.id] < component.maxSelections;
 };
 
 const availableItemsByPlan = (challenge: ChallengeDefinition) => {
-  // Every required role gets a chance to appear, then the remaining slots
-  // are sampled from the full pool. The final ordering remains hidden.
   const anchors = challenge.componentTypes
     .filter((component) => component.required)
     .flatMap((component) =>
@@ -67,18 +63,12 @@ const availableItemsByPlan = (challenge: ChallengeDefinition) => {
   let remaining = challenge.items.filter(
     (item) => !anchors.some((anchor) => anchor.id === item.id),
   );
-  const extraCount = Math.max(0, challenge.numberOfItemsRequired - anchors.length);
   const selected = [...anchors];
-  while (selected.length < anchors.length + extraCount) {
+  while (selected.length < challenge.numberOfItemsRequired) {
     const eligible = remaining.filter((item) => {
-      const component = challenge.componentTypes.find(
-        (entry) => entry.id === item.componentType,
-      );
+      const component = challenge.componentTypes.find((entry) => entry.id === item.componentType);
       if (!component) return false;
-      const selectedOfType = selected.filter(
-        (entry) => entry.componentType === item.componentType,
-      ).length;
-      // There are two player build slots per component type.
+      const selectedOfType = selected.filter((entry) => entry.componentType === item.componentType).length;
       return selectedOfType < component.maxSelections * PLAYERS.length;
     });
     if (!eligible.length) break;
@@ -89,14 +79,14 @@ const availableItemsByPlan = (challenge: ChallengeDefinition) => {
   return shuffle(selected).map((item) => item.id);
 };
 
-export const createGame = (challengeId: string): GameState => {
+export const createRoom = (challengeId: string): GameState => {
   const challenge = getChallenge(challengeId);
   if (!challenge) throw new Error("That challenge is unavailable.");
-
-  const state: GameState = {
-    id: randomId(),
+  return {
+    id: randomToken(),
+    roomCode: randomRoomCode(),
     challengeId,
-    phase: "PLAYER_ONE_BIDDING",
+    phase: "WAITING_FOR_PLAYER",
     round: 1,
     maxRounds: challenge.numberOfItemsRequired,
     availableItemIds: availableItemsByPlan(challenge),
@@ -105,42 +95,58 @@ export const createGame = (challengeId: string): GameState => {
       one: { budget: STARTING_BUDGET, items: [] },
       two: { budget: STARTING_BUDGET, items: [] },
     },
+    playerTokens: { one: randomToken(), two: null },
+    currentBid: null,
+    closeAt: null,
     lastResult: null,
   };
-  advanceToNextItem(state, challenge);
-  return state;
 };
 
-const eligibleAvailableItemIndex = (
-  state: GameState,
-  challenge: ChallengeDefinition,
-) =>
+export const sessionFor = (state: GameState, player: PlayerId) => {
+  const token = state.playerTokens[player];
+  if (!token) throw new Error("This seat has not joined yet.");
+  return { roomCode: state.roomCode, player, token };
+};
+
+export const joinRoom = (state: GameState) => {
+  if (state.playerTokens.two) throw new Error("This room already has two players.");
+  if (state.phase !== "WAITING_FOR_PLAYER") throw new Error("This room is no longer accepting players.");
+  state.playerTokens.two = randomToken();
+  const challenge = getChallenge(state.challengeId);
+  if (!challenge) throw new Error("Challenge data is unavailable.");
+  advanceToNextItem(state, challenge);
+  return sessionFor(state, "two");
+};
+
+export const playerForToken = (state: GameState, token: string) =>
+  PLAYERS.find((player) => state.playerTokens[player] === token) ?? null;
+
+const eligibleAvailableItemIndex = (state: GameState, challenge: ChallengeDefinition) =>
   state.availableItemIds.findIndex((itemId) => {
     const item = itemFor(challenge, itemId);
-    return PLAYERS.some((playerId) =>
-      canPlayerTake(challenge, state.players[playerId], item),
-    );
+    return PLAYERS.some((playerId) => canPlayerTake(challenge, state.players[playerId], item));
   });
 
-export const advanceToNextItem = (
-  state: GameState,
-  challenge: ChallengeDefinition,
-) => {
+export const advanceToNextItem = (state: GameState, challenge: ChallengeDefinition) => {
   if (state.round > state.maxRounds) {
     state.phase = "FINISHED";
     state.currentItemId = null;
+    state.currentBid = null;
+    state.closeAt = null;
     return;
   }
-
   const nextItemIndex = eligibleAvailableItemIndex(state, challenge);
   if (nextItemIndex === -1) {
     state.phase = "FINISHED";
     state.currentItemId = null;
+    state.currentBid = null;
+    state.closeAt = null;
     return;
   }
-
   state.currentItemId = state.availableItemIds.splice(nextItemIndex, 1)[0];
-  state.phase = "PLAYER_ONE_BIDDING";
+  state.currentBid = null;
+  state.closeAt = Date.now() + AUCTION_QUIET_WINDOW_MS;
+  state.phase = "AUCTION_OPEN";
   state.lastResult = null;
 };
 
@@ -149,84 +155,61 @@ const requireCurrentItem = (state: GameState, challenge: ChallengeDefinition) =>
   return itemFor(challenge, state.currentItemId);
 };
 
-export const submitBid = (
-  state: GameState,
-  playerId: PlayerId,
-  bid: number,
-) => {
+export const placeBid = (state: GameState, playerId: PlayerId, amount: number) => {
+  if (state.phase !== "AUCTION_OPEN") throw new Error("This lot is not open for bids.");
+  if (!Number.isInteger(amount)) throw new Error("Bids must be whole dollars.");
   const challenge = getChallenge(state.challengeId);
   if (!challenge) throw new Error("Challenge data is unavailable.");
-  const expectedPhase =
-    playerId === "one" ? "PLAYER_ONE_BIDDING" : "PLAYER_TWO_BIDDING";
-  if (state.phase !== expectedPhase) throw new Error("It is not that player’s turn.");
-  if (!Number.isInteger(bid) || bid < 0) throw new Error("Bids must be whole dollars.");
-
   const item = requireCurrentItem(state, challenge);
   const player = state.players[playerId];
-  const canBid = canPlayerTake(challenge, player, item);
-  if (canBid && (bid < 1 || bid > player.budget)) {
-    throw new Error("Bid between $1 and the player’s remaining budget.");
+  if (!canPlayerTake(challenge, player, item)) {
+    throw new Error("You cannot add this component with your remaining budget or build slots.");
   }
-  if (!canBid && bid !== 0) {
-    throw new Error("This player cannot add that component right now.");
+  if (state.currentBid?.player === playerId) {
+    throw new Error("You already have the leading bid. Wait for your opponent to raise.");
   }
-
-  player.pendingBid = bid;
-  if (playerId === "one") {
-    state.phase = "PLAYER_TWO_BIDDING";
-    return;
+  const minimum = (state.currentBid?.amount ?? 0) + 1;
+  if (amount < minimum || amount > player.budget) {
+    throw new Error(`Bid between $${minimum} and $${player.budget}.`);
   }
-  resolveRound(state, challenge, item);
+  state.currentBid = { player: playerId, amount, placedAt: Date.now() };
+  state.closeAt = Date.now() + AUCTION_QUIET_WINDOW_MS;
 };
 
-const resolveRound = (
-  state: GameState,
-  challenge: ChallengeDefinition,
-  item: ComponentItem,
-) => {
-  const bids: Record<PlayerId, number> = {
-    one: state.players.one.pendingBid ?? 0,
-    two: state.players.two.pendingBid ?? 0,
-  };
-  let winner: PlayerId | null = null;
-  let tieBreak = false;
-
-  if (bids.one > bids.two) winner = "one";
-  if (bids.two > bids.one) winner = "two";
-  if (bids.one > 0 && bids.one === bids.two) {
-    winner = Math.random() > 0.5 ? "one" : "two";
-    tieBreak = true;
+export const closeAuction = (state: GameState) => {
+  if (state.phase !== "AUCTION_OPEN") throw new Error("There is no open auction to close.");
+  const remaining = (state.closeAt ?? Date.now()) - Date.now();
+  if (remaining > 0) {
+    throw new Error(`Bidding remains open for ${Math.ceil(remaining / 1000)} more seconds.`);
   }
-
+  const challenge = getChallenge(state.challengeId);
+  if (!challenge) throw new Error("Challenge data is unavailable.");
+  const item = requireCurrentItem(state, challenge);
+  const winner = state.currentBid?.player ?? null;
+  const winningBid = state.currentBid?.amount ?? 0;
   if (winner) {
-    state.players[winner].budget -= bids[winner];
+    state.players[winner].budget -= winningBid;
     state.players[winner].items.push(item.id);
   }
-  state.players.one.pendingBid = undefined;
-  state.players.two.pendingBid = undefined;
-  state.lastResult = { itemId: item.id, item, bids, winner, tieBreak };
+  state.lastResult = { itemId: item.id, item, winner, winningBid };
   state.phase = "ROUND_REVEAL";
+  state.closeAt = null;
 };
 
 export const nextRound = (state: GameState) => {
-  if (state.phase !== "ROUND_REVEAL") {
-    throw new Error("Reveal the round before moving on.");
-  }
+  if (state.phase !== "ROUND_REVEAL") throw new Error("Close the auction before starting the next lot.");
   const challenge = getChallenge(state.challengeId);
   if (!challenge) throw new Error("Challenge data is unavailable.");
   state.round += 1;
   advanceToNextItem(state, challenge);
 };
 
-const scorePlayer = (
-  challenge: ChallengeDefinition,
-  player: PlayerState,
-): ScoreCard => {
+const scorePlayer = (challenge: ChallengeDefinition, player: PlayerState): ScoreCard => {
   const items = player.items.map((itemId) => itemFor(challenge, itemId));
   const typesFilled = new Set(items.map((item) => item.componentType)).size;
-  const requiredFilled = challenge.componentTypes.filter(
-    (component) =>
-    component.required && items.some((item) => item.componentType === component.id),
+  const requiredTypes = challenge.componentTypes.filter((component) => component.required);
+  const requiredFilled = requiredTypes.filter((component) =>
+    items.some((item) => item.componentType === component.id),
   ).length;
   const rarity = items.reduce((total, item) => total + item.score, 0);
   const tagCounts = items.flatMap((item) => item.tags).reduce<Record<string, number>>(
@@ -237,56 +220,53 @@ const scorePlayer = (
     (total, count) => total + (count > 1 ? count - 1 : 0),
     0,
   );
-  const coverage = challenge.componentTypes.length
-    ? requiredFilled / challenge.componentTypes.filter((component) => component.required).length
-    : 0;
+  const coverage = requiredTypes.length ? requiredFilled / requiredTypes.length : 0;
   const variety = challenge.componentTypes.length ? typesFilled / challenge.componentTypes.length : 0;
   const quality = Math.min(1, rarity / Math.max(1, items.length * 9));
   const synergy = Math.min(1, synergyPairs / Math.max(2, items.length));
-  const rawSignals = [coverage, synergy, quality, variety, (coverage + quality + synergy) / 3];
+  const signals = [coverage, synergy, quality, variety, (coverage + quality + synergy) / 3];
   const lines = challenge.scoringCriteria.map((criterion, index) => ({
     name: criterion.name,
-    value: Math.max(1, Math.round((rawSignals[index] ?? quality) * 20)),
+    value: Math.max(1, Math.round((signals[index] ?? quality) * 20)),
     outOf: 20,
   }));
   const total = lines.reduce((sum, line) => sum + line.value, 0);
-  const missing = challenge.componentTypes
-    .filter(
-      (component) => component.required && !items.some((item) => item.componentType === component.id),
-    )
+  const missing = requiredTypes
+    .filter((component) => !items.some((item) => item.componentType === component.id))
     .map((component) => component.name);
-  const summary = missing.length
-    ? `Strong personality, but missing ${missing.join(" and ")} kept the build from its full potential.`
-    : `A complete build with ${synergyPairs > items.length ? "excellent" : "promising"} internal synergy.`;
-  return { total, lines, summary };
+  return {
+    total,
+    lines,
+    summary: missing.length
+      ? `Strong personality, but missing ${missing.join(" and ")} kept the build from its full potential.`
+      : `A complete build with ${synergyPairs > items.length ? "excellent" : "promising"} internal synergy.`,
+  };
 };
 
 export const toPublicGame = (state: GameState): PublicGameState => {
   const challenge = getChallenge(state.challengeId);
   if (!challenge) throw new Error("Challenge data is unavailable.");
-  const currentItem = state.currentItemId
-    ? itemFor(challenge, state.currentItemId)
-    : null;
+  const currentItem = state.currentItemId ? itemFor(challenge, state.currentItemId) : null;
   const playerPublic = (player: PlayerState) => ({
     budget: player.budget,
     items: player.items.map((itemId) => itemFor(challenge, itemId)),
     componentCounts: componentCounts(challenge, player),
   });
-  const publicChallenge = {
-    id: challenge.id,
-    name: challenge.name,
-    kicker: challenge.kicker,
-    description: challenge.description,
-    objective: challenge.objective,
-    imageSearchTerm: challenge.imageSearchTerm,
-    accent: challenge.accent,
-    componentTypes: challenge.componentTypes,
-    scoringCriteria: challenge.scoringCriteria,
-    numberOfItemsRequired: challenge.numberOfItemsRequired,
-  };
   const publicGame: PublicGameState = {
     id: state.id,
-    challenge: publicChallenge,
+    roomCode: state.roomCode,
+    challenge: {
+      id: challenge.id,
+      name: challenge.name,
+      kicker: challenge.kicker,
+      description: challenge.description,
+      objective: challenge.objective,
+      imageSearchTerm: challenge.imageSearchTerm,
+      accent: challenge.accent,
+      componentTypes: challenge.componentTypes,
+      scoringCriteria: challenge.scoringCriteria,
+      numberOfItemsRequired: challenge.numberOfItemsRequired,
+    },
     phase: state.phase,
     round: state.round,
     maxRounds: state.maxRounds,
@@ -296,13 +276,13 @@ export const toPublicGame = (state: GameState): PublicGameState => {
       one: currentItem ? canPlayerTake(challenge, state.players.one, currentItem) : false,
       two: currentItem ? canPlayerTake(challenge, state.players.two, currentItem) : false,
     },
+    seats: { one: Boolean(state.playerTokens.one), two: Boolean(state.playerTokens.two) },
+    currentBid: state.currentBid,
+    closeAt: state.closeAt,
     lastResult: state.lastResult,
   };
   if (state.phase === "FINISHED") {
-    publicGame.scores = {
-      one: scorePlayer(challenge, state.players.one),
-      two: scorePlayer(challenge, state.players.two),
-    };
+    publicGame.scores = { one: scorePlayer(challenge, state.players.one), two: scorePlayer(challenge, state.players.two) };
   }
   return publicGame;
 };
