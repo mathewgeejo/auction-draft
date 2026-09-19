@@ -1,5 +1,5 @@
 import {
-  closeAuction,
+  concedeLot,
   createRoom,
   joinRoom,
   nextRound,
@@ -16,7 +16,7 @@ type RoomAction =
   | { action: "create"; challengeId: string }
   | { action: "join"; roomCode: string }
   | { action: "bid"; roomCode: string; token: string; amount: number }
-  | { action: "close"; roomCode: string; token: string }
+  | { action: "concede"; roomCode: string; token: string }
   | { action: "next"; roomCode: string; token: string };
 
 const normalizeCode = (roomCode: string) => roomCode.trim().toUpperCase();
@@ -61,7 +61,7 @@ export async function POST(request: Request) {
     const player = playerForToken(game, payload.token);
     if (!player) throw new Error("Your room session is no longer valid.");
     if (payload.action === "bid") placeBid(game, player, payload.amount);
-    if (payload.action === "close") closeAuction(game);
+    if (payload.action === "concede") concedeLot(game, player);
     if (payload.action === "next") nextRound(game);
     saveGame(game);
     return NextResponse.json({ game: toPublicGame(game), session: sessionFor(game, player) } satisfies RoomResponse);

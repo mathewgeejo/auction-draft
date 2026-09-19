@@ -69,7 +69,7 @@ function CreationBoard({ state, player }: { state: PublicGameState; player: Play
     <div className="component-list">
       {playerState.items.length === 0 ? <p className="empty-build">No winning components yet.</p> : playerState.items.map((item, index) =>
         <div className="won-component" key={item.id} style={{ "--i": index } as CSSProperties}>
-          <span className="won-index">0{index + 1}</span><div><strong>{item.name}</strong><small>{item.componentType}</small></div>
+          <span className="won-index">0{index + 1}</span><Picture term={item.imageSearchTerm} label={item.name} className="component-thumb" /><div><strong>{item.name}</strong><small>{item.componentType}</small></div>
         </div>,
       )}
     </div>
@@ -83,16 +83,14 @@ function Rarity({ item }: { item: ComponentItem }) {
 function LiveBidding({
   state,
   session,
-  now,
   onBid,
-  onClose,
+  onConcede,
   busy,
 }: {
   state: PublicGameState;
   session: RoomSession;
-  now: number;
-  onBid: (amount: number) => void;
-  onClose: () => void;
+  onBid: () => void;
+  onConcede: () => void;
   busy: boolean;
 }) {
   const item = state.currentItem!;
@@ -102,9 +100,7 @@ function LiveBidding({
   const budget = state.players[me].budget;
   const leading = state.currentBid?.player === me;
   const eligible = state.canBid[me] && !leading;
-  const [amount, setAmount] = useState(() => Math.min(Math.max(minimum, 1), budget));
-  const displayNow = now || ((state.closeAt ?? 0) - 8_000);
-  const secondsRemaining = Math.max(0, Math.ceil(((state.closeAt ?? displayNow) - displayNow) / 1000));
+  const passed = state.passedBy.includes(me);
 
   return <main className="auction-stage open-auction">
     <div className="stage-topline"><span>Live lot {String(state.round).padStart(2, "0")}</span><span>{state.maxRounds - state.round + 1} lots remain</span></div>
@@ -120,19 +116,18 @@ function LiveBidding({
       <div className="current-bid">
         <span className="eyebrow">{state.currentBid ? `${PLAYER_NAMES[state.currentBid.player]} leads` : "Opening bid"}</span>
         <strong>${currentAmount || "—"}</strong>
-        <span className={`auction-clock ${secondsRemaining <= 3 ? "clock-urgent" : ""}`}>{secondsRemaining}s to close</span>
+        <span className="auction-clock">Live until one player concedes</span>
       </div>
       <div className="live-bid-copy">
         <h2>{leading ? "You have the high bid." : eligible ? "Want it? Beat the bid." : "You can’t bid on this lot."}</h2>
         <p>{leading ? "Your opponent can still take it by raising the offer." : eligible ? `Your budget is $${budget}. The next valid bid is $${minimum}.` : "Your budget or component slots do not allow another bid."}</p>
       </div>
       {eligible ? <div className="live-bid-controls">
-        <label className="bid-number"><span>$</span><input type="number" min={minimum} max={budget} value={amount} disabled={busy} onChange={(event) => setAmount(Math.min(budget, Math.max(minimum, Number(event.target.value) || minimum)))} /></label>
-        <button className="primary-action" type="button" disabled={busy || amount < minimum || amount > budget} onClick={() => onBid(amount)}>Place ${amount} bid <span>→</span></button>
+        <button className="raise-bid" type="button" disabled={busy || minimum > budget} onClick={onBid}><span>+</span> Raise bid to ${minimum}</button>
       </div> : null}
-      <button className="close-auction" type="button" disabled={busy || secondsRemaining > 0} onClick={onClose}>
-        {secondsRemaining > 0 ? `Bidding live — ${secondsRemaining}s` : "Close auction"}
-      </button>
+      {leading ? <p className="concede-status">You lead. Your opponent chooses whether to raise or let you take it.</p> : <button className="concede-lot" type="button" disabled={busy || passed} onClick={onConcede}>
+        {state.currentBid ? `Let ${PLAYER_NAMES[state.currentBid.player]} take it for $${currentAmount}` : passed ? "You passed — waiting for opponent" : "Pass this lot"}
+      </button>}
     </section>
   </main>;
 }
@@ -181,11 +176,13 @@ function FinalResults({ state, onLeave }: { state: PublicGameState; onLeave: () 
 function Lobby({ onHost, onJoin, busy, error }: { onHost: (challengeId: string) => void; onJoin: (roomCode: string) => void; busy: boolean; error: string | null }) {
   const [challenges, setChallenges] = useState<ChallengeCard[]>([]);
   const [roomCode, setRoomCode] = useState("");
+  const [selectedChallenge, setSelectedChallenge] = useState("");
   useEffect(() => { fetch("/api/challenges").then((response) => response.json()).then((data: ChallengeCard[]) => setChallenges(data)).catch(() => undefined); }, []);
   return <main className="lobby">
     <section className="lobby-hero"><div className="lobby-hero-copy"><span className="eyebrow">A live auction party game</span><h1>Build something<br /><i>worth fighting for.</i></h1><p>See every bid. Raise it if you dare. Spend your $20 to build the creation that wins the room.</p><div className="game-rules"><span><b>02</b> players</span><span><b>$20</b> each</span><span><b>LIVE</b> bids</span></div></div><div className="lobby-art" aria-hidden="true"><div className="art-orbit orbit-one" /><div className="art-orbit orbit-two" /><div className="art-card art-card-one">$08</div><div className="art-card art-card-two">$09</div><div className="art-center">B<br />B</div></div></section>
+    <section className="host-access"><div><span className="eyebrow">Start a new game</span><h2>Host a room</h2><p>Choose the challenge, create a private code, then invite your opponent.</p></div><div className="host-controls"><select value={selectedChallenge} onChange={(event) => setSelectedChallenge(event.target.value)} aria-label="Challenge to host"><option value="">Choose challenge</option>{challenges.map((challenge) => <option key={challenge.id} value={challenge.id}>{challenge.name}</option>)}</select><button className="primary-action" type="button" disabled={busy || !selectedChallenge} onClick={() => onHost(selectedChallenge)}>Host room <span>→</span></button></div></section>
     <section className="room-access"><div><span className="eyebrow">Have a code?</span><h2>Join a live room</h2></div><form onSubmit={(event) => { event.preventDefault(); onJoin(roomCode); }}><input value={roomCode} maxLength={5} onChange={(event) => setRoomCode(event.target.value.toUpperCase())} placeholder="ROOM CODE" aria-label="Room code" /><button className="primary-action" disabled={busy || roomCode.trim().length < 5}>Join room <span>→</span></button></form></section>
-    <section className="challenge-select"><div className="section-heading"><div><span className="eyebrow">Host a room</span><h2>Choose the arena</h2></div><p>Pick a challenge, share the code, then bid against each other live.</p></div>{error ? <p className="error-message">{error}</p> : null}<div className="challenge-grid">{challenges.map((challenge) => <button className="challenge-card" key={challenge.id} type="button" onClick={() => onHost(challenge.id)} disabled={busy} style={{ "--accent": challenge.accent } as CSSProperties}><Picture term={challenge.imageSearchTerm} label={challenge.name} /><span className="challenge-shade" /><span className="challenge-content"><small>{challenge.kicker} · {challenge.rounds} lots</small><strong>{challenge.name}</strong><em>{challenge.description}</em><span className="choose-challenge">Host this room <b>→</b></span></span></button>)}</div></section>
+    <section className="challenge-select"><div className="section-heading"><div><span className="eyebrow">Pick the arena</span><h2>Choose your challenge</h2></div><p>Select a category above, then use Host room to generate the invitation code.</p></div>{error ? <p className="error-message">{error}</p> : null}<div className="challenge-grid">{challenges.map((challenge) => <button className={`challenge-card ${selectedChallenge === challenge.id ? "selected-challenge" : ""}`} key={challenge.id} type="button" onClick={() => setSelectedChallenge(challenge.id)} disabled={busy} style={{ "--accent": challenge.accent } as CSSProperties}><Picture term={challenge.imageSearchTerm} label={challenge.name} /><span className="challenge-shade" /><span className="challenge-content"><small>{challenge.kicker} · {challenge.rounds} lots</small><strong>{challenge.name}</strong><em>{challenge.description}</em><span className="choose-challenge">{selectedChallenge === challenge.id ? "Selected to host" : "Choose this challenge"} <b>→</b></span></span></button>)}</div></section>
   </main>;
 }
 
@@ -193,7 +190,6 @@ export default function Home() {
   const [room, setRoom] = useState<RoomResponse | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [now, setNow] = useState(0);
 
   const saveRoom = (next: RoomResponse) => { setRoom(next); sessionStorage.setItem(SESSION_KEY, JSON.stringify(next.session)); };
   const leaveRoom = () => { sessionStorage.removeItem(SESSION_KEY); setRoom(null); setError(null); };
@@ -204,10 +200,10 @@ export default function Home() {
     if (!stored) return;
     try { const session = JSON.parse(stored) as RoomSession; pollRoom(session).then(saveRoom).catch(() => sessionStorage.removeItem(SESSION_KEY)); } catch { sessionStorage.removeItem(SESSION_KEY); }
   }, []);
-  useEffect(() => { if (!room) return; const timer = window.setInterval(() => { setNow(Date.now()); pollRoom(room.session).then((next) => setRoom(next)).catch(() => undefined); }, 1000); return () => window.clearInterval(timer); }, [room]);
+  useEffect(() => { if (!room) return; const timer = window.setInterval(() => { pollRoom(room.session).then((next) => setRoom(next)).catch(() => undefined); }, 1000); return () => window.clearInterval(timer); }, [room]);
 
   const roomGame = room?.game;
   return <div className="app-shell"><header className="site-header"><button type="button" className="brand-button" onClick={leaveRoom}><Wordmark /></button><div className="header-note"><span className="live-dot" /> {room ? `Room ${room.game.roomCode}` : "Live auction studio"}</div></header>
-    {!room ? <Lobby onHost={(challengeId) => void run({ action: "create", challengeId })} onJoin={(roomCode) => void run({ action: "join", roomCode })} busy={busy} error={error} /> : roomGame.phase === "WAITING_FOR_PLAYER" ? <WaitingRoom room={room} onCopy={() => void navigator.clipboard?.writeText(room.game.roomCode)} /> : roomGame.phase === "FINISHED" ? <FinalResults state={roomGame} onLeave={leaveRoom} /> : <div className="game-layout" style={{ "--accent": roomGame.challenge.accent } as CSSProperties}><section className="game-bar"><div><span className="eyebrow">{roomGame.challenge.kicker} · you are {PLAYER_NAMES[room.session.player]}</span><h2>Build the best {roomGame.challenge.name.replace("Best ", "").toLowerCase()}</h2></div><div className="room-live-status"><span className="live-dot" /> Both players connected</div></section>{error ? <p className="error-message game-error">{error}</p> : null}<div className="game-grid"><CreationBoard state={roomGame} player="one" />{roomGame.phase === "AUCTION_OPEN" ? <LiveBidding key={`${roomGame.currentItem?.id}-${room.session.player}`} state={roomGame} session={room.session} now={now} busy={busy} onBid={(amount) => void run({ action: "bid", roomCode: room.session.roomCode, token: room.session.token, amount })} onClose={() => void run({ action: "close", roomCode: room.session.roomCode, token: room.session.token })} /> : <RoundReveal state={roomGame} busy={busy} onNext={() => void run({ action: "next", roomCode: room.session.roomCode, token: room.session.token })} />}<CreationBoard state={roomGame} player="two" /></div></div>}
+    {!room ? <Lobby onHost={(challengeId) => void run({ action: "create", challengeId })} onJoin={(roomCode) => void run({ action: "join", roomCode })} busy={busy} error={error} /> : roomGame.phase === "WAITING_FOR_PLAYER" ? <WaitingRoom room={room} onCopy={() => void navigator.clipboard?.writeText(room.game.roomCode)} /> : roomGame.phase === "FINISHED" ? <FinalResults state={roomGame} onLeave={leaveRoom} /> : <div className="game-layout" style={{ "--accent": roomGame.challenge.accent } as CSSProperties}><section className="game-bar"><div><span className="eyebrow">{roomGame.challenge.kicker} · you are {PLAYER_NAMES[room.session.player]}</span><h2>Build the best {roomGame.challenge.name.replace("Best ", "").toLowerCase()}</h2></div><div className="room-live-status"><span className="live-dot" /> Both players connected</div></section>{error ? <p className="error-message game-error">{error}</p> : null}<div className="game-grid"><CreationBoard state={roomGame} player="one" />{roomGame.phase === "AUCTION_OPEN" ? <LiveBidding key={`${roomGame.currentItem?.id}-${room.session.player}`} state={roomGame} session={room.session} busy={busy} onBid={() => void run({ action: "bid", roomCode: room.session.roomCode, token: room.session.token, amount: (roomGame.currentBid?.amount ?? 0) + 1 })} onConcede={() => void run({ action: "concede", roomCode: room.session.roomCode, token: room.session.token })} /> : <RoundReveal state={roomGame} busy={busy} onNext={() => void run({ action: "next", roomCode: room.session.roomCode, token: room.session.token })} />}<CreationBoard state={roomGame} player="two" /></div></div>}
   </div>;
 }

@@ -48,6 +48,13 @@ button:disabled { cursor: not-allowed; opacity: .56; }
 .art-card-two { right: 14%; bottom: 15%; transform: rotate(18deg); background: #1a2937; color: #f3efe6; }
 
 .challenge-select { width: min(1340px, 90vw); margin: 92px auto 0; }
+.host-access { display: flex; align-items: end; justify-content: space-between; gap: 30px; width: min(1340px, 90vw); margin: 44px auto -45px; padding: 27px 28px; border: 1px solid var(--ink); background: var(--ink); color: var(--paper); }
+.host-access h2 { margin: 7px 0 0; font-size: 28px; letter-spacing: -.065em; }
+.host-access p { max-width: 430px; margin: 8px 0 0; color: #c9c3b7; font-size: 11px; line-height: 1.5; }
+.host-controls { display: flex; gap: 8px; }
+.host-controls select { width: 190px; padding: 11px; border: 1px solid #c9c3b7; outline: 0; color: var(--paper); background: #22231f; font-family: 'DM Mono', monospace; font-size: 10px; letter-spacing: .04em; text-transform: uppercase; }
+.host-controls select:focus { box-shadow: 3px 3px 0 var(--red); }
+.host-access .primary-action { color: var(--ink); background: var(--paper); }
 .room-access { display: flex; align-items: end; justify-content: space-between; gap: 28px; width: min(1340px, 90vw); margin: 44px auto -45px; padding: 25px 28px; border: 1px solid var(--ink); background: #dfd5c4; }
 .room-access h2 { margin: 7px 0 0; font-size: 26px; letter-spacing: -.06em; }
 .room-access form { display: flex; gap: 8px; }
@@ -96,6 +103,8 @@ button:disabled { cursor: not-allowed; opacity: .56; }
 .empty-build { margin: 18px 0 0; color: var(--muted); font-size: 12px; line-height: 1.5; }
 .won-component { display: flex; gap: 12px; padding: 14px 0; border-bottom: 1px solid var(--line); animation: slideIn .35s both; animation-delay: calc(var(--i) * 60ms); }
 .won-index { color: var(--muted); font-family: 'DM Mono', monospace; font-size: 9px; }
+.component-thumb { width: 30px; height: 30px; flex: 0 0 30px; background: var(--ink); }
+.component-thumb .picture-fallback { font-size: 13px; }
 .won-component strong { display: block; font-size: 12px; line-height: 1.2; }
 .won-component small { display: block; margin-top: 4px; color: var(--muted); }
 
@@ -143,12 +152,16 @@ button:disabled { cursor: not-allowed; opacity: .56; }
 .live-bid-copy h2 { margin: 0 0 5px; font-size: 19px; letter-spacing: -.055em; }
 .live-bid-copy p { margin: 0; color: var(--muted); font-size: 11px; line-height: 1.5; }
 .live-bid-controls { display: flex; align-items: center; gap: 10px; }
+.raise-bid { min-height: 48px; padding: 10px 15px; border: 1px solid var(--ink); color: var(--paper); background: var(--ink); font-family: 'DM Mono', monospace; font-size: 10px; letter-spacing: .06em; text-transform: uppercase; transition: transform .18s ease, box-shadow .18s ease; }
+.raise-bid span { display: inline-block; padding-right: 7px; font-size: 20px; line-height: 0; vertical-align: -2px; }
+.raise-bid:hover:not(:disabled) { transform: translate(-2px, -2px); box-shadow: 4px 4px 0 var(--accent, var(--red)); }
 .live-bid-controls .bid-number { width: 79px; height: 43px; font-size: 33px; }
 .live-bid-controls .bid-number span { font-size: 20px; }
 .live-bid-controls .bid-number input { width: 48px; font-size: 33px; }
 .live-bid-controls .primary-action { white-space: nowrap; }
-.close-auction { grid-column: 1 / -1; justify-self: center; padding: 0; border: 0; color: var(--muted); background: transparent; font-family: 'DM Mono', monospace; font-size: 9px; letter-spacing: .07em; text-transform: uppercase; }
-.close-auction:not(:disabled) { color: var(--ink); text-decoration: underline; text-underline-offset: 4px; }
+.concede-lot { grid-column: 1 / -1; justify-self: center; padding: 0; border: 0; color: var(--muted); background: transparent; font-family: 'DM Mono', monospace; font-size: 9px; letter-spacing: .07em; text-decoration: underline; text-underline-offset: 4px; text-transform: uppercase; }
+.concede-lot:not(:disabled):hover { color: var(--red); }
+.concede-status { grid-column: 1 / -1; justify-self: center; margin: 0; color: var(--muted); font-family: 'DM Mono', monospace; font-size: 9px; letter-spacing: .04em; text-align: center; text-transform: uppercase; }
 .result-stage { display: flex; flex-direction: column; justify-content: space-between; }
 .result-item { display: grid; grid-template-columns: 180px 1fr; gap: 30px; align-items: center; margin: auto 0; }
 .result-picture { aspect-ratio: 1; box-shadow: 6px 6px 0 var(--ink); }
@@ -220,6 +233,9 @@ button:disabled { cursor: not-allowed; opacity: .56; }
   .art-card { width: 76px; height: 105px; font-size: 18px; }
   .challenge-select, .final-results { width: 90vw; margin-top: 60px; }
   .room-access { display: block; width: 90vw; margin: 30px auto -25px; padding: 20px; }
+  .host-access { display: block; width: 90vw; margin: 30px auto -25px; padding: 20px; }
+  .host-controls { margin-top: 17px; }
+  .host-controls select { flex: 1; min-width: 0; }
   .room-access form { margin-top: 17px; }
   .room-access input { flex: 1; min-width: 0; }
   .section-heading { display: block; }
@@ -247,7 +263,7 @@ button:disabled { cursor: not-allowed; opacity: .56; }
   .live-bid-panel { grid-template-columns: 1fr; gap: 14px; text-align: center; }
   .current-bid { min-width: 0; }
   .live-bid-controls { justify-content: center; }
-  .close-auction { grid-column: auto; }
+  .concede-lot, .concede-status { grid-column: auto; }
   .result-item { grid-template-columns: 105px 1fr; gap: 18px; margin: 35px 0; }
   .waiting-room { min-height: calc(100vh - 64px); }
 }

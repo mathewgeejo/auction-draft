@@ -77,7 +77,7 @@ export interface GameState {
   players: Record<PlayerId, PlayerState>;
   playerTokens: Record<PlayerId, string | null>;
   currentBid: CurrentBid | null;
-  closeAt: number | null;
+  passedBy: PlayerId[];
   lastResult: RoundResult | null;
 }
 
@@ -99,7 +99,7 @@ export interface PublicGameState {
   canBid: Record<PlayerId, boolean>;
   seats: Record<PlayerId, boolean>;
   currentBid: CurrentBid | null;
-  closeAt: number | null;
+  passedBy: PlayerId[];
   lastResult: RoundResult | null;
   scores?: Record<PlayerId, ScoreCard>;
 }

@@ -11,7 +11,6 @@ import type {
 
 const PLAYERS: PlayerId[] = ["one", "two"];
 const STARTING_BUDGET = 20;
-export const AUCTION_QUIET_WINDOW_MS = 8_000;
 
 const randomToken = () =>
   `${Date.now().toString(36)}-${crypto.randomUUID().replaceAll("-", "")}`;
@@ -97,7 +96,7 @@ export const createRoom = (challengeId: string): GameState => {
     },
     playerTokens: { one: randomToken(), two: null },
     currentBid: null,
-    closeAt: null,
+    passedBy: [],
     lastResult: null,
   };
 };
@@ -132,7 +131,7 @@ export const advanceToNextItem = (state: GameState, challenge: ChallengeDefiniti
     state.phase = "FINISHED";
     state.currentItemId = null;
     state.currentBid = null;
-    state.closeAt = null;
+    state.passedBy = [];
     return;
   }
   const nextItemIndex = eligibleAvailableItemIndex(state, challenge);
@@ -140,12 +139,12 @@ export const advanceToNextItem = (state: GameState, challenge: ChallengeDefiniti
     state.phase = "FINISHED";
     state.currentItemId = null;
     state.currentBid = null;
-    state.closeAt = null;
+    state.passedBy = [];
     return;
   }
   state.currentItemId = state.availableItemIds.splice(nextItemIndex, 1)[0];
   state.currentBid = null;
-  state.closeAt = Date.now() + AUCTION_QUIET_WINDOW_MS;
+  state.passedBy = [];
   state.phase = "AUCTION_OPEN";
   state.lastResult = null;
 };
@@ -173,18 +172,22 @@ export const placeBid = (state: GameState, playerId: PlayerId, amount: number) =
     throw new Error(`Bid between $${minimum} and $${player.budget}.`);
   }
   state.currentBid = { player: playerId, amount, placedAt: Date.now() };
-  state.closeAt = Date.now() + AUCTION_QUIET_WINDOW_MS;
+  state.passedBy = [];
 };
 
-export const closeAuction = (state: GameState) => {
-  if (state.phase !== "AUCTION_OPEN") throw new Error("There is no open auction to close.");
-  const remaining = (state.closeAt ?? Date.now()) - Date.now();
-  if (remaining > 0) {
-    throw new Error(`Bidding remains open for ${Math.ceil(remaining / 1000)} more seconds.`);
-  }
+export const concedeLot = (state: GameState, playerId: PlayerId) => {
+  if (state.phase !== "AUCTION_OPEN") throw new Error("There is no open auction to concede.");
   const challenge = getChallenge(state.challengeId);
   if (!challenge) throw new Error("Challenge data is unavailable.");
   const item = requireCurrentItem(state, challenge);
+  if (state.currentBid?.player === playerId) {
+    throw new Error("You have the leading bid. Your opponent decides whether to concede.");
+  }
+  if (!state.currentBid) {
+    if (state.passedBy.includes(playerId)) throw new Error("You have already passed on this lot.");
+    state.passedBy.push(playerId);
+    if (state.passedBy.length < PLAYERS.length) return;
+  }
   const winner = state.currentBid?.player ?? null;
   const winningBid = state.currentBid?.amount ?? 0;
   if (winner) {
@@ -193,7 +196,6 @@ export const closeAuction = (state: GameState) => {
   }
   state.lastResult = { itemId: item.id, item, winner, winningBid };
   state.phase = "ROUND_REVEAL";
-  state.closeAt = null;
 };
 
 export const nextRound = (state: GameState) => {
@@ -278,7 +280,7 @@ export const toPublicGame = (state: GameState): PublicGameState => {
     },
     seats: { one: Boolean(state.playerTokens.one), two: Boolean(state.playerTokens.two) },
     currentBid: state.currentBid,
-    closeAt: state.closeAt,
+    passedBy: state.passedBy,
     lastResult: state.lastResult,
   };
   if (state.phase === "FINISHED") {
